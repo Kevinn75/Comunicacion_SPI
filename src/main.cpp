@@ -4,47 +4,59 @@
 #include <LiquidCrystal_I2C.h>
 #include <Adafruit_BMP280.h>
 
-// Pin Chip Select para el BMP280 por SPI
-#define BMP_CS 5
+// Configuración de Pines SPI para el BMP280
+#define BMP_SCK  18
+#define BMP_MISO 19
+#define BMP_MOSI 23
+#define BMP_CS   5
 
-// Pantalla LCD 16x2 por I2C (0x27)
+// Dirección I2C del LCD (0x27)
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-
-// Objeto BMP280 configurado para SPI por Hardware
 Adafruit_BMP280 bmp(BMP_CS);
 
-// --- CALIBRACIÓN PARA HABITACIÓN (MANIZALES) ---
-const float OFFSET_TEMP = 6.25; // Resta 6.25 °C a la lectura bruta para ajustar a ~20 °C
-
+// Ajuste de calibración para Manizales
+const float OFFSET_TEMP = 6.25; 
 unsigned long previoMillis = 0;
-const long intervalo = 1000; // Actualiza cada 1 segundo
+const long intervalo = 1000;
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  delay(500);
 
-  // Inicializar bus I2C para la Pantalla LCD
+  // 1. Inicialización de I2C estabilizado
   Wire.begin(21, 22);
+  Wire.setClock(50000); // 50 kHz para evitar ruido en pantalla
+
+  // 2. Configuración inicial del LCD
   lcd.init();
+  delay(50);
   lcd.backlight();
   lcd.clear();
 
-  // Inicializar BMP280 vía SPI por Hardware
+  // Imprimir etiquetas estáticas una sola vez
+  lcd.setCursor(0, 0);
+  lcd.print("Temp:");
+  lcd.setCursor(0, 1);
+  lcd.print("Pres:");
+
+  // 3. Inicialización de SPI Hardware para BMP280
+  SPI.begin(BMP_SCK, BMP_MISO, BMP_MOSI, BMP_CS);
+
   if (!bmp.begin()) {
     Serial.println("Error: No se encontro el sensor BMP280 mediante SPI.");
-    lcd.setCursor(0, 0);
-    lcd.print("Error BMP (SPI)!");
-    while (1); // Detener si falla la comunicación SPI
+    lcd.setCursor(6, 0);
+    lcd.print("Error SPI!");
+    while (1);
   }
 
-  // Configuración del sensor para mediciones estables
+  // Configuración de muestreo adecuada para altitud
   bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,
                   Adafruit_BMP280::SAMPLING_X2,
                   Adafruit_BMP280::SAMPLING_X16,
                   Adafruit_BMP280::FILTER_X16,
                   Adafruit_BMP280::STANDBY_MS_500);
 
-  Serial.println("--- BMP280 POR SPI (MANIZALES) INICIADO ---");
+  Serial.println("--- ESTACIÓN METEOROLÓGICA MANIZALES INICIADA ---");
 }
 
 void loop() {
@@ -53,29 +65,24 @@ void loop() {
   if (actualMillis - previoMillis >= intervalo) {
     previoMillis = actualMillis;
 
-    // 1. Obtención de lecturas a través de bus SPI
-    float tempBruta = bmp.readTemperature();
-    float presAbsolutaHpa = bmp.readPressure() / 100.0F; // Convierte Pascales a hPa
+    // Lectura y calibración
+    float tempCalibrada = bmp.readTemperature() - OFFSET_TEMP;
+    float presAbsolutaHpa = bmp.readPressure() / 100.0F;
 
-    // 2. Aplicar calibración de temperatura
-    float tempCalibrada = tempBruta - OFFSET_TEMP;
+    // Actualizar únicamente los valores en el LCD (evita parpadeo)
+    lcd.setCursor(6, 0);
+    lcd.print(tempCalibrada, 1);
+    lcd.print(" C   ");
 
-    // --- MONITOR SERIAL ---
-    Serial.print("Temp (SPI): ");
+    lcd.setCursor(6, 1);
+    lcd.print(presAbsolutaHpa, 1);
+    lcd.print(" hPa ");
+
+    // Salida Serial
+    Serial.print("Temp: ");
     Serial.print(tempCalibrada, 1);
-    Serial.print(" *C | Presion Manizales: ");
+    Serial.print(" °C | Pres: ");
     Serial.print(presAbsolutaHpa, 1);
     Serial.println(" hPa");
-
-    // --- PANTALLA LCD 16x2 ---
-    lcd.setCursor(0, 0);
-    lcd.print("Temp: ");
-    lcd.print(tempCalibrada, 1);
-    lcd.print(" C    ");
-
-    lcd.setCursor(0, 1);
-    lcd.print("Pres: ");
-    lcd.print(presAbsolutaHpa, 1);
-    lcd.print(" hPa  ");
   }
 }
